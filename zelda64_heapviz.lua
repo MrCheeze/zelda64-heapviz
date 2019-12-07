@@ -1301,12 +1301,25 @@ function describe_node(header_addr)
 	end
 end
 
-event.onexit(function() gui.DrawNew("native") gui.DrawFinish() end)
+client.SetGameExtraPadding(0,10,0,0)
+
+event.onexit(function()
+	client.SetGameExtraPadding(0,0,0,0)
+	gui.DrawNew("native")
+	gui.DrawFinish()
+end)
+
+local scrollbar_size = 20
+local heapviz_size = 50
+local reset_box_size = 20
 
 local dragging_mouse = false
+local dragging_mouse_for_scrollbar = false
 local dragstart_x
 local zoom_begin = 0
 local zoom_end = 1
+local tracked_actors = {}
+local oldmouse = input.getmouse()
 while true do
 	
 	if emu.framecount() % 3 == 0 or client.ispaused() then
@@ -1334,23 +1347,58 @@ while true do
 			
 			local mouse_in_range = x_native >= 0 and x_native <= client.screenwidth() and y_native >= 0 and y_native <= client.screenheight()
 			
+			local just_released_drag = false
+			if dragging_mouse and not mouse.Left then
+				dragging_mouse = false
+				local scale = zoom_end-zoom_begin
+				if y_native > scrollbar_size and dragstart_x + 10 < x_native then
+					zoom_end = zoom_begin + x_native / client.screenwidth() * scale
+					zoom_begin = zoom_begin + dragstart_x / client.screenwidth() * scale
+					just_released_drag = true
+				elseif y_native > scrollbar_size and x_native + 10 < dragstart_x then
+					local scale = zoom_end-zoom_begin
+					zoom_end = zoom_begin + dragstart_x / client.screenwidth() * scale
+					zoom_begin = zoom_begin + x_native / client.screenwidth() * scale
+					just_released_drag = true
+				elseif y_native > scrollbar_size+heapviz_size and y_native < scrollbar_size+heapviz_size+reset_box_size and x_native > client.screenwidth()-reset_box_size and x_native < client.screenwidth() then
+					zoom_begin = 0
+					zoom_end = 1
+					just_released_drag = true
+				end
+				if zoom_begin < 0 then zoom_begin = 0 end
+				if zoom_end > 1 then zoom_end = 1 end
+			end
 			
-			gui.drawBox(-offset, 0, heapsize*scale - offset, 50, 0x80000000, 0xFF00FF00)
+			gui.drawBox(0,0,client.screenwidth(),scrollbar_size, 0x80000000, 0x80E0E0E0)
+			gui.drawBox(client.screenwidth()*zoom_begin,0,client.screenwidth()*zoom_end,scrollbar_size, 0x80000000, 0x80E0E0E0)
+			
+			gui.drawBox(client.screenwidth()-reset_box_size,scrollbar_size+heapviz_size,client.screenwidth(),scrollbar_size+heapviz_size+reset_box_size,0x80000000,0x80C0C0C0)
+			gui.drawLine(client.screenwidth()-reset_box_size,scrollbar_size+heapviz_size,client.screenwidth(),scrollbar_size+heapviz_size+reset_box_size,0x80000000)
+			gui.drawLine(client.screenwidth()-reset_box_size,scrollbar_size+heapviz_size+reset_box_size,client.screenwidth(),scrollbar_size+heapviz_size,0x80000000)
+			
+			gui.drawBox(-offset, scrollbar_size, heapsize*scale - offset, scrollbar_size+heapviz_size, 0x80000000, 0xFF00FF00)
 			node = gameconfig.heap_start
 			local node_to_show = nil
 			while node ~= 0 and node_valid(node) do
 				local x = (node-gameconfig.heap_start)*scale - offset
-				local x2 = (node+node_blocksize(node)-gameconfig.heap_start)*scale - offset
+				local x2 = (node+gameconfig.header_size+node_blocksize(node)-gameconfig.heap_start)*scale - offset
 				if node_isfree(node) > 0 then
-					gui.drawBox(x, 0, x2, 50, 0x80000000, 0xFFFF0000)
+					gui.drawBox(x, scrollbar_size, x2, scrollbar_size+heapviz_size, 0x80000000, 0xFFFF0000)
+				elseif tracked_actors[mainmemory.read_u16_be(node+gameconfig.header_size-0x80000000)] then
+					gui.drawBox(x, scrollbar_size, x2, scrollbar_size+heapviz_size, 0x80000000, 0xFF00FFFF)
+				else
+					gui.drawLine(x, scrollbar_size, x, scrollbar_size+heapviz_size, 0x80000000)
 				end
-				gui.drawLine(x, 0, x, 50, 0x80000000)
 				
 				if inputs.G then
-					print(string.format("addr:%X  free:%X blocksize:%X next_addr:%X prev_addr:%X - %s", node, node_isfree(node), node_blocksize(node), node_next(node), node_prev(node), describe_node(node)))
+					print(string.format("header:%X data:%X free:%X blocksize:%X next_addr:%X prev_addr:%X - %s", node, node+gameconfig.header_size, node_isfree(node), node_blocksize(node), node_next(node), node_prev(node), describe_node(node)))
 				end
-				if mouse_in_range and y_native <= 50 and x <= x_native and x_native <= x2 then
+				if mouse_in_range and y_native > scrollbar_size and y_native < scrollbar_size+heapviz_size and x <= x_native and x_native <= x2 then
 					node_to_show = node
+					if not mouse.Left and oldmouse.Left and not just_released_drag then
+						local actorid = mainmemory.read_u16_be(node+gameconfig.header_size-0x80000000)
+						tracked_actors[actorid] = not tracked_actors[actorid]
+					end
 				end
 				
 				node = node_next(node)
@@ -1359,43 +1407,67 @@ while true do
 			
 			if not dragging_mouse and mouse_in_range then
 				if mouse.Left then
-					dragging_mouse = true
-					dragstart_x = x_native
+					if y_native < scrollbar_size or dragging_mouse_for_scrollbar then
+						dragging_mouse_for_scrollbar = true
+						local new_centerpoint = x_native/client.screenwidth()
+						local distance = (zoom_end-zoom_begin)/2
+						if new_centerpoint < distance then new_centerpoint = distance end
+						if new_centerpoint > 1-distance then new_centerpoint = 1-distance end
+						zoom_begin = new_centerpoint - distance
+						zoom_end = new_centerpoint + distance
+					else
+						dragging_mouse = true
+						dragstart_x = x_native
+					end
 				elseif mouse.Middle then
 					zoom_begin = 0
 					zoom_end = 1
+				else
+					dragging_mouse_for_scrollbar = false
 				end
 			end
 			if dragging_mouse then
 				if x_native < 0 then x_native = 0 end
 				if x_native > client.screenwidth() then x_native = client.screenwidth() end
-				gui.drawBox(dragstart_x,0,x_native,50, 0xC00000FF, 0xC000FFFF)
-				if not mouse.Left then
-					dragging_mouse = false
-					local scale = zoom_end-zoom_begin
-					if dragstart_x + 10 < x_native then
-						zoom_end = zoom_begin + x_native / client.screenwidth() * scale
-						zoom_begin = zoom_begin + dragstart_x / client.screenwidth() * scale
-					elseif x_native + 10 < dragstart_x then
-						local scale = zoom_end-zoom_begin
-						zoom_end = zoom_begin + dragstart_x / client.screenwidth() * scale
-						zoom_begin = zoom_begin + x_native / client.screenwidth() * scale
-					else
-						zoom_begin = 0
-						zoom_end = 1
+				gui.drawBox(dragstart_x,scrollbar_size,x_native,scrollbar_size+heapviz_size, 0xC00000FF, 0xC000FFFF)
+			end
+			
+			if mouse.Wheel ~= oldmouse.Wheel then
+				if mouse.Wheel < oldmouse.Wheel then -- zoom out
+					zoom_begin = zoom_begin - 0.1
+					zoom_end = zoom_end + 0.1
+				elseif mouse.Wheel > oldmouse.Wheel then -- zoom in
+					local newzoom_center = x_native / client.screenwidth()
+					if newzoom_center < zoom_begin then newzoom_center = zoom_begin end
+					if newzoom_center > zoom_end then newzoom_center = zoom_end end
+					zoom_begin = newzoom_center-(newzoom_center-zoom_begin)/1.5
+					zoom_end = newzoom_center+(zoom_end-newzoom_center)/1.5
+				end
+				if zoom_begin < 0 then zoom_begin = 0 end
+				if zoom_end > 1 then zoom_end = 1 end
+			end
+			
+			if next(tracked_actors) ~= nil then
+				local tracked_str = "Tracked actors:"
+				for k,v in pairs(tracked_actors) do
+					if v then
+						tracked_str = tracked_str..string.format(' %04X',k)
 					end
 				end
+				gui.drawText(0,scrollbar_size+heapviz_size+15, tracked_str)
 			end
 			
 			if node_to_show then
 				local coord = x_native
-				local str_to_draw = string.format("addr: %X\nfree: %X\nblocksize: %X\nnext_addr: %X\nprev_addr: %X\n\n%s", node_to_show, node_isfree(node_to_show), node_blocksize(node_to_show), node_next(node_to_show), node_prev(node_to_show), describe_node(node_to_show))
+				local str_to_draw = string.format("header: %X\ndata: %X\nfree: %X\nblocksize: %X\nnext_addr: %X\nprev_addr: %X\n\n%s", node_to_show, node_to_show+gameconfig.header_size, node_isfree(node_to_show), node_blocksize(node_to_show), node_next(node_to_show), node_prev(node_to_show), describe_node(node_to_show))
 				local dir = "left"
 				if x_native > client.screenwidth()*0.6 then
 					dir = "right"
 				end
 				gui.drawText(x_native, y_native+25, str_to_draw, nil, nil, 12, nil, nil, dir)
 			end
+			
+			oldmouse = mouse
 		end
 	
 	end
