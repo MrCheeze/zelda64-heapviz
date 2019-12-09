@@ -1322,6 +1322,11 @@ function track(actorid, vars)
 	actor_tracking[actorid] = vars
 end
 
+function trackaddr(addr, val)
+	if addr < 0x80000000 then addr = addr + 0x80000000 end
+	address_tracking[addr] = val
+end
+
 client.SetGameExtraPadding(0,10,0,0)
 
 event.onexit(function()
@@ -1330,6 +1335,11 @@ event.onexit(function()
 	gui.DrawFinish()
 end)
 
+print("Usage: Click and drag to zoom. Use scroll wheel, middle-click, or X button to unzoom.\n"..
+	"Click an actor in the heap to track actors of that type.\n"..
+	"To track custom variables for actor types, type e.g. track(0x0082, {0x32,0xBE}) in console.\n"..
+	"To track arbitrary addresses, type e.g. trackaddr(0x80000000, true) in console.\n")
+
 local scrollbar_size = 20
 local heapviz_size = 50
 local reset_box_size = 20
@@ -1337,9 +1347,10 @@ local reset_box_size = 20
 local dragging_mouse = false
 local dragging_mouse_for_scrollbar = false
 local dragstart_x
-local zoom_begin = 0
-local zoom_end = 1
+if zoom_begin == nil then zoom_begin = 0 end
+if zoom_end == nil then zoom_end = 1 end
 if actor_tracking == nil then actor_tracking = {} end --global
+if address_tracking == nil then address_tracking = {} end --global
 local oldmouse = input.getmouse()
 while true do
 	
@@ -1400,7 +1411,7 @@ while true do
 			gui.drawBox(-offset, scrollbar_size, heapsize*scale - offset, scrollbar_size+heapviz_size, 0x80000000, 0xFF00FF00)
 			node = gameconfig.heap_start
 			local node_to_show = nil
-			local tracked_actor_count = 0
+			local printed_lines_count = 0
 			while node ~= 0 and node_valid(node) do
 				local x = (node-gameconfig.heap_start)*scale - offset
 				local x2 = (node+gameconfig.header_size+node_blocksize(node)-gameconfig.heap_start)*scale - offset
@@ -1408,8 +1419,8 @@ while true do
 					gui.drawBox(x, scrollbar_size, x2, scrollbar_size+heapviz_size, 0x80000000, 0xFFFF0000)
 				elseif actor_tracking[mainmemory.read_u16_be(node+gameconfig.header_size-0x80000000)] ~= nil then
 					gui.drawBox(x, scrollbar_size, x2, scrollbar_size+heapviz_size, 0x80000000, 0xFF00FFFF)
-					gui.drawText(0,scrollbar_size+heapviz_size+45+15*tracked_actor_count, string.format("%X - %s", node+gameconfig.header_size, describe_node(node)))
-					tracked_actor_count = tracked_actor_count + 1
+					gui.drawText(0,scrollbar_size+heapviz_size+45+15*printed_lines_count, string.format("%X - %s", node+gameconfig.header_size, describe_node(node)))
+					printed_lines_count = printed_lines_count + 1
 					
 				else
 					gui.drawLine(x, scrollbar_size, x, scrollbar_size+heapviz_size, 0x80000000)
@@ -1432,7 +1443,7 @@ while true do
 							actor_tracking[actorid] = nil
 						else
 							actor_tracking[actorid] = {}
-							print(string.format("To track custom variables, type e.g. track(0x%04X, {0x32,0xBE}) in console",actorid))
+							print(string.format("To track custom actor variables, type e.g. track(0x%04X, {0x32,0xBE}) in console",actorid))
 						end
 					end
 				end
@@ -1501,6 +1512,23 @@ while true do
 					dir = "right"
 				end
 				gui.drawText(x_native, y_native+25, str_to_draw, nil, nil, 12, nil, nil, dir)
+			end
+			
+			for addr,v in pairs(address_tracking) do
+				if v then
+					local varValue
+					if addr%4 == 0 then
+						varValue = mainmemory.read_u32_be(addr-0x80000000)
+						gui.drawText(0,scrollbar_size+heapviz_size+60+15*printed_lines_count, string.format("Tracked addr %X - %08X", addr, varValue))
+					elseif addr%2 == 0 then
+						varValue = mainmemory.read_u16_be(addr-0x80000000)
+						gui.drawText(0,scrollbar_size+heapviz_size+60+15*printed_lines_count, string.format("Tracked addr %X - %04X", addr, varValue))
+					else
+						varValue = mainmemory.readbyte(addr-0x80000000)
+						gui.drawText(0,scrollbar_size+heapviz_size+60+15*printed_lines_count, string.format("Tracked addr %X - %02X", addr, varValue))
+					end
+					printed_lines_count = printed_lines_count + 1
+				end
 			end
 			
 			oldmouse = mouse
