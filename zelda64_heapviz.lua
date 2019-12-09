@@ -1327,7 +1327,7 @@ function trackaddr(addr, val)
 	address_tracking[addr] = val
 end
 
-client.SetGameExtraPadding(0,10,0,0)
+client.SetGameExtraPadding(0,12,0,0)
 
 event.onexit(function()
 	client.SetGameExtraPadding(0,0,0,0)
