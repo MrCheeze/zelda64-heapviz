@@ -44,7 +44,7 @@ local supported_roms = {
 	[0x8473D0C1] = {
 		game="MM",
 		version="J-GC",
-		heap_start=0,
+		heap_start=0x8039A4D0,
 		header_size=0x10
 	},
 	
@@ -52,6 +52,12 @@ local supported_roms = {
 		game="OoT",
 		version="NTSC-1.0",
 		heap_start=0x801DAA00,
+		header_size=0x30
+	},
+	[0x693BA2AE] = {
+		game="OoT",
+		version="NTSC-1.2",
+		heap_start=0x801DB2C0,
 		header_size=0x30
 	}
 }
