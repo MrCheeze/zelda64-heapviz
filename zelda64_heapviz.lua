@@ -59,6 +59,30 @@ local supported_roms = {
 		version="NTSC-1.2",
 		heap_start=0x801DB2C0,
 		header_size=0x30
+	},
+	[0xB1E1E07B] = {
+		game="OoT",
+		version="iQue",
+		heap_start=0x801E7F60,
+		header_size=0x10
+	},
+	[0xF7F52DB8] = {
+		game="OoT",
+		version="J-GC-CollectorsDisc",
+		heap_start=0x801DBBA0,
+		header_size=0x10
+	},
+	[0xF43B45BA] = {
+		game="OoT",
+		version="J-GC-MQDisc",
+		heap_start=0x801DBBA0,
+		header_size=0x10
+	},
+	[0xF611F4BA] = {
+		game="OoT",
+		version="J-MQ",
+		heap_start=0x801DBBA0,
+		header_size=0x10
 	}
 }
 
