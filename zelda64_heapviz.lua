@@ -83,6 +83,12 @@ local supported_roms = {
 		version="J-MQ",
 		heap_start=0x801DBBA0,
 		header_size=0x10
+	},
+	[0x917D18F6] = {
+		game="OoT",
+		version="PAL-MQ-Debug",
+		heap_start=0x80224580,
+		header_size=0x30
 	}
 }
 
