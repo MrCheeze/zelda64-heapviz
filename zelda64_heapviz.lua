@@ -1599,6 +1599,7 @@ while true do
 			node = heap_start
 			local node_to_show = nil
 			local printed_lines_count = 0
+			local lines_to_print = {}
 			while node ~= 0 and node_valid(node) do
 				local x = (node-heap_start)*scale - offset
 				local x2 = (node+header_size+node_blocksize(node)-heap_start)*scale - offset
@@ -1614,12 +1615,12 @@ while true do
 				end
 				
 				if inputs.G then
-					print(string.format("header:%X data:%X free:%X blocksize:%X next_addr:%X prev_addr:%X - %s", node, node+header_size, node_isfree(node), node_blocksize(node), node_next(node), node_prev(node), describe_node(node)))
+					table.insert(lines_to_print, string.format("header:%X data:%X free:%X blocksize:%X next_addr:%X prev_addr:%X - %s", node, node+header_size, node_isfree(node), node_blocksize(node), node_next(node), node_prev(node), describe_node(node)))
 				end
 				if inputs.H then
 					local actorid = mainmemory.read_u16_be(node+header_size-0x80000000)
 					if actor_tracking[actorid] ~= nil and node_isfree(node) == 0 then
-						print(string.format("header:%X data:%X free:%X blocksize:%X next_addr:%X prev_addr:%X - %s", node, node+header_size, node_isfree(node), node_blocksize(node), node_next(node), node_prev(node), describe_node(node)))
+						table.insert(lines_to_print, string.format("header:%X data:%X free:%X blocksize:%X next_addr:%X prev_addr:%X - %s", node, node+header_size, node_isfree(node), node_blocksize(node), node_next(node), node_prev(node), describe_node(node)))
 					end
 				end
 				if mouse_in_range and y_native > scrollbar_size and y_native < scrollbar_size+heapviz_size and x <= x_native and x_native <= x2 then
@@ -1636,6 +1637,9 @@ while true do
 				end
 				
 				node = node_next(node)
+			end
+			if #lines_to_print > 0 then
+				print(table.concat(lines_to_print, "\n"))
 			end
 			
 			
