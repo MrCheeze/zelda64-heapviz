@@ -1455,7 +1455,7 @@ function describe_node(header_addr)
 	local maybe_xpos = mainmemory.read_u32_be(data_addr-0x80000000+actor_pos_offset[game])
 	local maybe_ypos = mainmemory.read_u32_be(data_addr-0x80000000+actor_pos_offset[game]+4)
 	local maybe_zpos = mainmemory.read_u32_be(data_addr-0x80000000+actor_pos_offset[game]+8)
-	if probably_a_float(maybe_xpos) and probably_a_float(maybe_ypos) and probably_a_float(maybe_zpos) and first_u16 < 0x0300 and first_u32 > 0 then
+	if probably_a_float(maybe_xpos) and probably_a_float(maybe_ypos) and probably_a_float(maybe_zpos) and first_u16 <= #actor_defs[game] and first_u32 > 0 then
 		local description = string.format("Actor %04X %s", first_u16, actor_defs[game][first_u16])
 		if actor_tracking[first_u16] ~= nil and next(actor_tracking[first_u16]) ~= nil then
 			description = description.." -"
