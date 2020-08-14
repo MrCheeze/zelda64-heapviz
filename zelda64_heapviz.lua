@@ -1539,6 +1539,8 @@ if zoom_end == nil then zoom_end = 1 end
 if actor_tracking == nil then actor_tracking = {} end --global
 if address_tracking == nil then address_tracking = {} end --global
 local oldmouse = input.getmouse()
+local inputs
+local prev_inputs = input.get()
 while true do
 	
 	if emu.framecount() % 3 == 0 or client.ispaused() then
@@ -1554,7 +1556,8 @@ while true do
 		
 		local scale = 1/heapsize*client.screenwidth()/(zoom_end-zoom_begin)
 		local offset = zoom_begin / (zoom_end-zoom_begin) * client.screenwidth()
-		local inputs = input.get()
+		prev_inputs = inputs
+		inputs = input.get()
 		
 		gui.DrawNew("native")
 		
@@ -1599,7 +1602,7 @@ while true do
 			node = heap_start
 			local node_to_show = nil
 			local printed_lines_count = 0
-			local lines_to_print = {}
+			local lines_to_print = ""
 			while node ~= 0 and node_valid(node) do
 				local x = (node-heap_start)*scale - offset
 				local x2 = (node+header_size+node_blocksize(node)-heap_start)*scale - offset
@@ -1614,13 +1617,13 @@ while true do
 					gui.drawLine(x, scrollbar_size, x, scrollbar_size+heapviz_size, 0x80000000)
 				end
 				
-				if inputs.G then
-					table.insert(lines_to_print, string.format("header:%X data:%X free:%X blocksize:%X next_addr:%X prev_addr:%X - %s", node, node+header_size, node_isfree(node), node_blocksize(node), node_next(node), node_prev(node), describe_node(node)))
+				if inputs.G and not prev_inputs.G then
+					lines_to_print=lines_to_print..string.format("header:%X data:%X free:%X blocksize:%X next_addr:%X prev_addr:%X - %s\n", node, node+header_size, node_isfree(node), node_blocksize(node), node_next(node), node_prev(node), describe_node(node))
 				end
-				if inputs.H then
+				if inputs.H and not prev_inputs.H then
 					local actorid = mainmemory.read_u16_be(node+header_size-0x80000000)
 					if actor_tracking[actorid] ~= nil and node_isfree(node) == 0 then
-						table.insert(lines_to_print, string.format("header:%X data:%X free:%X blocksize:%X next_addr:%X prev_addr:%X - %s", node, node+header_size, node_isfree(node), node_blocksize(node), node_next(node), node_prev(node), describe_node(node)))
+						lines_to_print=lines_to_print..string.format("header:%X data:%X free:%X blocksize:%X next_addr:%X prev_addr:%X - %s\n", node, node+header_size, node_isfree(node), node_blocksize(node), node_next(node), node_prev(node), describe_node(node))
 					end
 				end
 				if mouse_in_range and y_native > scrollbar_size and y_native < scrollbar_size+heapviz_size and x <= x_native and x_native <= x2 then
@@ -1638,8 +1641,8 @@ while true do
 				
 				node = node_next(node)
 			end
-			if #lines_to_print > 0 then
-				print(table.concat(lines_to_print, "\n"))
+			if lines_to_print ~= "" then
+				print(lines_to_print)
 			end
 			
 			
