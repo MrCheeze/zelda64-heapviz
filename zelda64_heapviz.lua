@@ -1456,7 +1456,7 @@ function probably_a_float(val)
 	return val == 0 or val == 0x80000000 or (val >= 0x38000000 and val <= 0x4c000000) or (val >= 0xb8000000 and val <= 0xcc000000)
 end
 
-function describe_node(header_addr)
+function summarize_node(header_addr)
 	-- Heuristically try to figure out what this node actually is.
 	local data_addr = header_addr + header_size
 	local first_u16 = mainmemory.read_u16_be(data_addr-0x80000000)
@@ -1466,42 +1466,14 @@ function describe_node(header_addr)
 	local maybe_ypos = mainmemory.read_u32_be(data_addr-0x80000000+actor_pos_offset[game]+4)
 	local maybe_zpos = mainmemory.read_u32_be(data_addr-0x80000000+actor_pos_offset[game]+8)
 	if probably_a_float(maybe_xpos) and probably_a_float(maybe_ypos) and probably_a_float(maybe_zpos) and first_u16 <= #actor_defs[game] and first_u32 > 0 then
-		local description = string.format("Actor %04X %s", first_u16, actor_defs[game][first_u16])
-		if actor_tracking[first_u16] ~= nil and next(actor_tracking[first_u16]) ~= nil then
-			description = description.." -"
-			for k,v in pairs(actor_tracking[first_u16]) do
-				local varValue
-				if v%4 == 0 then
-					varValue = mainmemory.read_u32_be(data_addr+v-0x80000000)
-					description = description..string.format(" 0x%X(%X)=%08X", v, data_addr+v, varValue)
-				elseif v%2 == 0 then
-					varValue = mainmemory.read_u16_be(data_addr+v-0x80000000)
-					description = description..string.format(" 0x%X(%X)=%04X", v, data_addr+v, varValue)
-				else
-					varValue = mainmemory.readbyte(data_addr+v-0x80000000)
-					description = description..string.format(" 0x%X(%X)=%X", v, data_addr+v, varValue)
-				end
-			end
-		end
-		return description
+		return string.format("Actor %04X", first_u16)
 	end
 	if overlay_map[data_addr] then
-		return string.format("Overlay %04X %s", overlay_map[data_addr], actor_defs[game][overlay_map[data_addr]])
+		--return string.format("Overlay %04X %s", overlay_map[data_addr], actor_defs[game][overlay_map[data_addr]])
+		return string.format("Overlay %04X", overlay_map[data_addr])
 	end
 	if first_u16 == 0x27BD or (first_u16 >= 0xAFA4 and first_u16 <= 0xAFA7) then
 		return "Unknown Code"
-	end
-	if node_blocksize(header_addr) > 0x100 then
-		local data = mainmemory.readbyterange(data_addr-0x80000000,0x100)
-		for i=0,0xFC,4 do
-			--detect jr	$ra
-			if (data[i+0] == 0x03 and
-				data[i+1] == 0xE0 and
-				data[i+2] == 0x00 and
-				data[i+3] == 0x08) then
-				return "Unknown Code"
-			end
-		end
 	end
 	if game == "OoT" and node_blocksize(header_addr) == 0x2010 then
 		return "Get Item Object"
@@ -1521,15 +1493,45 @@ function describe_node(header_addr)
 	end
 end
 
-function track(actorid, vars)
+function describe_node(header_addr)
+	local summary = summarize_node(header_addr)
+	local description = summary
+	local data_addr = header_addr + header_size
+	
+	local actorId = tonumber(string.sub(description, -4), 16)
+	if actorId ~= nil then
+		description = description.." "..actor_defs[game][actorId]
+	end
+	if node_tracking[summary] ~= nil and next(node_tracking[summary]) ~= nil then
+		description = description.." -"
+		for k,v in pairs(node_tracking[summary]) do
+			local varValue
+			if v%4 == 0 then
+				varValue = mainmemory.read_u32_be(data_addr+v-0x80000000)
+				description = description..string.format(" 0x%X(%X)=%08X", v, data_addr+v, varValue)
+			elseif v%2 == 0 then
+				varValue = mainmemory.read_u16_be(data_addr+v-0x80000000)
+				description = description..string.format(" 0x%X(%X)=%04X", v, data_addr+v, varValue)
+			else
+				varValue = mainmemory.readbyte(data_addr+v-0x80000000)
+				description = description..string.format(" 0x%X(%X)=%X", v, data_addr+v, varValue)
+			end
+		end
+	end
+	return description
+end
+
+function track(node_summary, vars)
 	if vars == nil then vars = {} end
-	actor_tracking[actorid] = vars
+	node_tracking[node_summary] = vars
+	return nil
 end
 
 function trackaddr(addr, val)
 	if addr < 0x80000000 then addr = addr + 0x80000000 end
 	if val == nil then val = true end
 	address_tracking[addr] = val
+	return nil
 end
 
 client.SetGameExtraPadding(0,12,0,0)
@@ -1542,7 +1544,7 @@ end)
 
 print("Usage: Click and drag to zoom. Use scroll wheel, middle-click, or X button to unzoom.\n"..
 	"Click an actor in the heap to track actors of that type.\n"..
-	"To track custom variables for actor types, type e.g. track(0x0082, {0x32,0xBE}) in console.\n"..
+	"To track custom node offsets, type e.g. track('Overlay 009B',{0x5E6}) in console.\n"..
 	"To track arbitrary addresses, type e.g. trackaddr(0x80000000, true) in console.\n")
 
 local scrollbar_size = 20
@@ -1554,7 +1556,7 @@ local dragging_mouse_for_scrollbar = false
 local dragstart_x
 if zoom_begin == nil then zoom_begin = 0 end
 if zoom_end == nil then zoom_end = 1 end
-if actor_tracking == nil then actor_tracking = {} end --global
+if node_tracking == nil then node_tracking = {} end --global
 if address_tracking == nil then address_tracking = {} end --global
 local oldmouse = input.getmouse()
 local inputs
@@ -1632,9 +1634,10 @@ while true do
 			while node ~= 0 and node_valid(node) do
 				local x = (node-heap_start)*scale - offset
 				local x2 = (node+header_size+node_blocksize(node)-heap_start)*scale - offset
+				local node_summary = summarize_node(node)
 				if node_isfree(node) > 0 then
 					gui.drawBox(x, scrollbar_size, x2, scrollbar_size+heapviz_size, 0x80000000, 0xFFFF0000)
-				elseif actor_tracking[mainmemory.read_u16_be(node+header_size-0x80000000)] ~= nil then
+				elseif node_tracking[node_summary] ~= nil then
 					gui.drawBox(x, scrollbar_size, x2, scrollbar_size+heapviz_size, 0x80000000, 0xFF00FFFF)
 					gui.drawText(0,scrollbar_size+heapviz_size+45+15*printed_lines_count, string.format("%X - %s", node+header_size, describe_node(node)))
 					printed_lines_count = printed_lines_count + 1
@@ -1648,7 +1651,7 @@ while true do
 				end
 				if inputs.H and not prev_inputs.H then
 					local actorid = mainmemory.read_u16_be(node+header_size-0x80000000)
-					if actor_tracking[actorid] ~= nil and node_isfree(node) == 0 then
+					if node_tracking[node_summary] ~= nil and node_isfree(node) == 0 then
 						lines_to_print=lines_to_print..string.format("header:%X data:%X free:%X blocksize:%X next_addr:%X prev_addr:%X - %s\n", node, node+header_size, node_isfree(node), node_blocksize(node), node_next(node), node_prev(node), describe_node(node))
 					end
 				end
@@ -1656,11 +1659,11 @@ while true do
 					node_to_show = node
 					if not mouse.Left and oldmouse.Left and not just_released_drag then
 						local actorid = mainmemory.read_u16_be(node+header_size-0x80000000)
-						if actor_tracking[actorid] ~= nil then
-							actor_tracking[actorid] = nil
-						else
-							actor_tracking[actorid] = {}
-							print(string.format("To track custom actor variables, type e.g. track(0x%04X, {0x32,0xBE}) in console",actorid))
+						if node_tracking[node_summary] ~= nil then
+							node_tracking[node_summary] = nil
+						elseif node_isfree(node) == 0 then
+							node_tracking[node_summary] = {}
+							print(string.format("To track custom node offsets, type e.g. track('%s', {0x32,0xBE}) in console",node_summary))
 						end
 					end
 				end
@@ -1714,13 +1717,14 @@ while true do
 				if zoom_end > 1 then zoom_end = 1 end
 			end
 			
-			if next(actor_tracking) ~= nil then
-				local tracked_str = "Tracked actors:"
-				for k,v in pairs(actor_tracking) do
+			if next(node_tracking) ~= nil then
+				local tracked_str = "Tracked nodes:"
+				for k,v in pairs(node_tracking) do
 					if v then
-						tracked_str = tracked_str..string.format(' %04X',k)
+						tracked_str = tracked_str..string.format(' %s,',k)
 					end
 				end
+				tracked_str = tracked_str:sub(1, -2) --remove trailing comma
 				gui.drawText(0,scrollbar_size+heapviz_size+15, tracked_str)
 			end
 			
