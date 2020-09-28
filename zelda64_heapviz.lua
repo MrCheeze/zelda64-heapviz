@@ -1374,12 +1374,34 @@ local actor_pos_offset = {
 	MM=0x24,
 	AF=0x5C,
 }
+local actor_codeentry_offset = {
+	OoT=0x138,
+	MM=0x140,
+	AF=0x170,
+}
 
 
-memory.usememorydomain("ROM")
-local checksum = memory.read_u32_be(0x10)
+
+-- Heap node structure
+function node_valid(addr)
+	return mainmemory.read_u16_be(addr-0x80000000) == 0x7373
+end
+function node_isfree(addr)
+	return mainmemory.read_u16_be(addr-0x80000000+2)
+end
+function node_blocksize(addr)
+	return mainmemory.read_u32_be(addr-0x80000000+4)
+end
+function node_next(addr)
+	return mainmemory.read_u32_be(addr-0x80000000+8)
+end
+function node_prev(addr)
+	return mainmemory.read_u32_be(addr-0x80000000+0xC)
+end
+
 
 heap_start = nil
+overlay_table = nil
 
 --find the heap
 while true do
@@ -1408,7 +1430,15 @@ while true do
 			else
 				game = "MM"
 			end
-			print(string.format("Heap found at %X (header_size=%X, game=%s)",heap_start,header_size,game))
+			local node = heap_start
+			while overlay_table == nil and node_valid(node) and node_next(node) ~= 0 do
+				local possibly_overlay_table = mainmemory.read_u32_be(node+header_size+actor_codeentry_offset[game]-0x80000000)
+				if possibly_overlay_table > 0x80000000 and possibly_overlay_table < 0x80800000 then
+					overlay_table = possibly_overlay_table
+				end
+				node = node_next(node)
+			end
+			print(string.format("Heap found at %X (header_size=%X, game=%s), overlay table found at %X",heap_start,header_size,game,overlay_table))
 			break
 		end
 	end
@@ -1422,23 +1452,6 @@ while true do
 	end
 end
 
--- Heap node structure
-function node_valid(addr)
-	return mainmemory.read_u16_be(addr-0x80000000) == 0x7373
-end
-function node_isfree(addr)
-	return mainmemory.read_u16_be(addr-0x80000000+2)
-end
-function node_blocksize(addr)
-	return mainmemory.read_u32_be(addr-0x80000000+4)
-end
-function node_next(addr)
-	return mainmemory.read_u32_be(addr-0x80000000+8)
-end
-function node_prev(addr)
-	return mainmemory.read_u32_be(addr-0x80000000+0xC)
-end
-
 function probably_a_float(val)
 	return val == 0 or val == 0x80000000 or (val >= 0x38000000 and val <= 0x4c000000) or (val >= 0xb8000000 and val <= 0xcc000000)
 end
@@ -1449,9 +1462,6 @@ function describe_node(header_addr)
 	local first_u16 = mainmemory.read_u16_be(data_addr-0x80000000)
 	local first_u32 = mainmemory.read_u32_be(data_addr-0x80000000)
 	
-	if first_u16 == 0x27BD or (first_u16 >= 0xAFA4 and first_u16 <= 0xAFA7) then
-		return "Code"
-	end
 	local maybe_xpos = mainmemory.read_u32_be(data_addr-0x80000000+actor_pos_offset[game])
 	local maybe_ypos = mainmemory.read_u32_be(data_addr-0x80000000+actor_pos_offset[game]+4)
 	local maybe_zpos = mainmemory.read_u32_be(data_addr-0x80000000+actor_pos_offset[game]+8)
@@ -1475,6 +1485,12 @@ function describe_node(header_addr)
 		end
 		return description
 	end
+	if overlay_map[data_addr] then
+		return string.format("Overlay %04X %s", overlay_map[data_addr], actor_defs[game][overlay_map[data_addr]])
+	end
+	if first_u16 == 0x27BD or (first_u16 >= 0xAFA4 and first_u16 <= 0xAFA7) then
+		return "Unknown Code"
+	end
 	if node_blocksize(header_addr) > 0x100 then
 		local data = mainmemory.readbyterange(data_addr-0x80000000,0x100)
 		for i=0,0xFC,4 do
@@ -1483,7 +1499,7 @@ function describe_node(header_addr)
 				data[i+1] == 0xE0 and
 				data[i+2] == 0x00 and
 				data[i+3] == 0x08) then
-				return "Code"
+				return "Unknown Code"
 			end
 		end
 	end
@@ -1506,11 +1522,13 @@ function describe_node(header_addr)
 end
 
 function track(actorid, vars)
+	if vars == nil then vars = {} end
 	actor_tracking[actorid] = vars
 end
 
 function trackaddr(addr, val)
 	if addr < 0x80000000 then addr = addr + 0x80000000 end
+	if val == nil then val = true end
 	address_tracking[addr] = val
 end
 
@@ -1541,11 +1559,19 @@ if address_tracking == nil then address_tracking = {} end --global
 local oldmouse = input.getmouse()
 local inputs
 local prev_inputs = input.get()
+overlay_map = {}
 while true do
 	
 	if emu.framecount() % 3 == 0 or client.ispaused() then
 
-
+		--run through the current values of the game's overlay table
+		for actorId=0,#actor_defs[game] do
+			local loaded_ovl_pointer = mainmemory.read_u32_be(overlay_table-0x80000000+(0x20*actorId)+0x10)
+			if loaded_ovl_pointer > 0 then
+				overlay_map[loaded_ovl_pointer] = actorId
+			end
+		end
+		
 		--locate size and end of heap
 		local node = heap_start
 		while node_valid(node) and node_next(node) ~= 0 do
