@@ -1538,8 +1538,7 @@ client.SetGameExtraPadding(0,12,0,0)
 
 event.onexit(function()
 	client.SetGameExtraPadding(0,0,0,0)
-	gui.DrawNew("native")
-	gui.DrawFinish()
+	gui.clearGraphics()
 end)
 
 print("Usage: Click and drag to zoom. Use scroll wheel, middle-click, or X button to unzoom.\n"..
@@ -1587,7 +1586,7 @@ while true do
 		prev_inputs = inputs
 		inputs = input.get()
 		
-		gui.DrawNew("native")
+		gui.use_surface("client")
 		
 		if node_valid(heap_start) then
 			
